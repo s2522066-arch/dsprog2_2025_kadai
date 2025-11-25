@@ -1,0 +1,56 @@
+import time
+import requests
+from bs4 import BeautifulSoup
+
+BASE_URL = "https://github.com/google?tab=repositories"
+HEADERS = {
+    # User-Agent を明示することでブロックを避けやすくする
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0 Safari/537.36"
+}
+
+def fetch_html(url: str, timeout: int = 20) -> str:
+    """
+    指定URLのHTMLを取得して返す。HTTPエラー時は例外を送出。
+    """
+    resp = requests.get(url, headers=HEADERS, timeout=timeout)
+    resp.raise_for_status()  # ステータスコードが 4xx/5xx のとき例外
+    return resp.text
+
+def build_page_url(page: int) -> str:
+    """
+    ページ番号に応じてURLを構築。
+    page == 1 の場合はクエリ無しのURLを使う（重複防止・見やすさのため）。
+    """
+    if page <= 1:
+        return BASE_URL
+    return f"{BASE_URL}&page={page}" if "?" in BASE_URL else f"{BASE_URL}?page={page}"
+
+def iterate_pages(max_pages: int = 5):
+    """
+    1ページ目から max_pages ページまで順にHTMLを取得し、各リクエスト間に1秒待つ。
+    ページの終端らしきシグナル（要素が見つからない等）で途中停止する実装の土台。
+    """
+    for page in range(1, max_pages + 1):
+        url = build_page_url(page)
+        try:
+            html = fetch_html(url)
+            print(f"[OK] page={page} url={url} length={len(html)}")
+        except requests.HTTPError as e:
+            print(f"[HTTP ERROR] page={page} url={url} {e}")
+            break
+        except requests.RequestException as e:
+            print(f"[REQUEST ERROR] page={page} url={url} {e}")
+            break
+
+        # 必要に応じて、ここでページからリポジトリカードが存在するか確認
+        soup = BeautifulSoup(html, "lxml")
+        repo_cards = soup.select("li[itemprop='owns']")
+        if not repo_cards:
+            print(f"[INFO] page={page} にリポジトリが見つからないため停止します。")
+            break
+
+        # 次のリクエストへ行く前に必ず1秒待機（重要）
+        time.sleep(1)
+
+if __name__ == "__main__":
+    iterate_pages(max_pages=10)
